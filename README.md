@@ -34,11 +34,7 @@ A robust and secure RESTful API built with ASP.NET Core 8.0 to power the Candle 
 ### Installation & Setup
 
 1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-username/candle-project.git
-   cd candle-project/Backend/CandleApi
-   ```
-
+  
 2. **Database Setup**:
    - Open SSMS and connect to your SQL Server instance.
    - Run the scripts located in the `Scripts` folder in the following order:
