@@ -1,0 +1,671 @@
+﻿-- 2. Create Tables
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
+CREATE TABLE Users (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(100) NOT NULL,
+    Email NVARCHAR(100) UNIQUE NOT NULL,
+    PasswordHash NVARCHAR(MAX) NOT NULL,
+    Role NVARCHAR(20) DEFAULT 'User'
+)
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Products')
+CREATE TABLE Products (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    Name NVARCHAR(200) NOT NULL,
+    Description NVARCHAR(MAX),
+    Price DECIMAL(18,2) NOT NULL,
+    Image NVARCHAR(MAX),
+    Category NVARCHAR(50),
+    Rating DECIMAL(3,2) DEFAULT 0
+)
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Orders')
+CREATE TABLE Orders (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    UserId INT FOREIGN KEY REFERENCES Users(Id),
+    Total DECIMAL(18,2) NOT NULL,
+    Status NVARCHAR(50) DEFAULT 'Pending',
+    Date DATETIME DEFAULT GETDATE(),
+    PaymentMethod NVARCHAR(50)
+)
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'OrderItems')
+CREATE TABLE OrderItems (
+    Id INT IDENTITY(1,1) PRIMARY KEY,
+    OrderId INT FOREIGN KEY REFERENCES Orders(Id),
+    ProductId INT FOREIGN KEY REFERENCES Products(Id),
+    Quantity INT NOT NULL,
+    Price DECIMAL(18,2) NOT NULL
+)
+GO
+
+-- 3. Seed Data (Fantasy Theme)
+IF NOT EXISTS (SELECT * FROM Products)
+BEGIN
+    INSERT INTO Products (Name, Description, Price, Image, Category, Rating) VALUES 
+    ('Eternal Flame', 'A candle that never burns out, forged in the depths of the Phoenix Nest. Emits a warm, undying light.', 45.00, 'https://images.unsplash.com/photo-1603006905003-be475563bc59?q=80', 'Legendary', 5.0),
+    
+    ('Midnight Whisper', 'Contains the silence of the void. Perfect for deep meditation or stealth missions. Smells like ozone and shadows.', 18.50, 'https://images.unsplash.com/photo-1547796068-067f082e0d3c?q=80', 'Stealth', 4.8),
+    
+    ('Forest Spirit', 'Essence of the ancient woods. Invokes the tranquility of an Elven Glade using moss, fern, and morning dew scents.', 22.00, 'https://images.unsplash.com/photo-1608181114410-db2bb411e527?q=80', 'Nature', 4.9),
+    
+    ('Dragon''s Breath', 'Spicy cinnamon and ember smoke. Captures the raw power of a fire drake. Warning: Glass may feel warm to the touch.', 30.00, 'https://images.unsplash.com/photo-1572016252981-d2f2cb6960ae?q=80', 'Elemental', 4.7),
+    
+    ('Wizard''s Study', 'The scent of old parchment, leather bindings, and pipe tobacco. Grants +2 Intelligence while burning.', 25.00, 'https://images.unsplash.com/photo-1596436034138-0283025215e9?q=80', 'Academic', 4.6),
+    
+    ('Siren''s Call', 'Sea salt, ocean breeze, and a hint of dangerous allure. Use with caution near open water.', 28.00, 'https://images.unsplash.com/photo-1602525963321-4d3756855877?q=80', 'Aquatic', 4.5),
+    
+    ('Dwarven Hearth', 'Roasted chestnuts, iron, and stout ale. Smells like home after a long mining expedition.', 20.00, 'https://images.unsplash.com/photo-1597588362688-64c8d1720d2d?q=80', 'Home', 4.8),
+    
+    ('Fae Trickery', 'A shifting scent that changes every hour. Lilac, then honey, then... sour milk? A gamble for the adventurous.', 15.00, 'https://images.unsplash.com/photo-1612152605332-959c25f48e35?q=80', 'Chaos', 4.2),
+    
+    ('Moonlight Serenade', 'Cool floral notes that bloom only at night. Crafted by the Lunar Priestess.', 35.00, 'https://images.unsplash.com/photo-1570701564993-e00652af8aa7?q=80', 'Celestial', 5.0),
+    
+    ('Alchemist''s Gold', 'Metallic tang mixed with honey and saffron. Designed to attract prosperity (results not guaranteed).', 50.00, 'https://images.unsplash.com/photo-1570703886561-3957813735a6?q=80', 'Luxury', 4.4)
+END
+GO
+
+-- =============================================
+-- AUTHENTICATION PROCEDURES
+-- =============================================
+
+-- =============================================
+-- Procedure: sp_RegisterUser
+-- Description: Registers a new user
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_RegisterUser')
+    DROP PROCEDURE sp_RegisterUser
+GO
+
+CREATE PROCEDURE sp_RegisterUser
+    @Name NVARCHAR(100),
+    @Email NVARCHAR(100),
+    @PasswordHash NVARCHAR(MAX),
+    @UserId INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        -- Check if user already exists
+        IF EXISTS (SELECT 1 FROM Users WHERE Email = @Email)
+        BEGIN
+            RAISERROR('User with this email already exists.', 16, 1)
+            RETURN
+        END
+        
+        -- Insert new user
+        INSERT INTO Users (Name, Email, PasswordHash, Role)
+        VALUES (@Name, @Email, @PasswordHash, 'User')
+        
+        SET @UserId = SCOPE_IDENTITY()
+        
+        SELECT @UserId AS Id, 'User registered successfully.' AS Message
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetUserByEmail
+-- Description: Retrieves user by email for login
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetUserByEmail')
+    DROP PROCEDURE sp_GetUserByEmail
+GO
+
+CREATE PROCEDURE sp_GetUserByEmail
+    @Email NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT Id, Name, Email, PasswordHash, Role, CreatedAt
+    FROM Users
+    WHERE Email = @Email
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetUserById
+-- Description: Retrieves user by ID
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetUserById')
+    DROP PROCEDURE sp_GetUserById
+GO
+
+CREATE PROCEDURE sp_GetUserById
+    @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT Id, Name, Email, Role, CreatedAt
+    FROM Users
+    WHERE Id = @UserId
+END
+GO
+
+-- =============================================
+-- PRODUCT PROCEDURES
+-- =============================================
+
+-- =============================================
+-- Procedure: sp_GetAllProducts
+-- Description: Retrieves all products
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetAllProducts')
+    DROP PROCEDURE sp_GetAllProducts
+GO
+
+CREATE PROCEDURE sp_GetAllProducts
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT Id, Name, Description, Price, Image, Category, Rating, CreatedAt
+    FROM Products
+    ORDER BY Rating DESC, Name
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetProductById
+-- Description: Retrieves a single product by ID
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetProductById')
+    DROP PROCEDURE sp_GetProductById
+GO
+
+CREATE PROCEDURE sp_GetProductById
+    @ProductId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT Id, Name, Description, Price, Image, Category, Rating, CreatedAt
+    FROM Products
+    WHERE Id = @ProductId
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetProductsByCategory
+-- Description: Retrieves products by category
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetProductsByCategory')
+    DROP PROCEDURE sp_GetProductsByCategory
+GO
+
+CREATE PROCEDURE sp_GetProductsByCategory
+    @Category NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT Id, Name, Description, Price, Image, Category, Rating, CreatedAt
+    FROM Products
+    WHERE Category = @Category
+    ORDER BY Rating DESC, Name
+END
+GO
+
+-- =============================================
+-- ORDER PROCEDURES
+-- =============================================
+
+-- =============================================
+-- Procedure: sp_CreateOrder
+-- Description: Creates a new order with items
+-- Parameters: @OrderItems is a JSON array of items
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_CreateOrder')
+    DROP PROCEDURE sp_CreateOrder
+GO
+
+CREATE PROCEDURE sp_CreateOrder
+    @UserId INT,
+    @Total DECIMAL(18,2),
+    @PaymentMethod NVARCHAR(50),
+    @ShippingAddress NVARCHAR(MAX) = NULL,
+    @OrderItems NVARCHAR(MAX), -- JSON array: [{"ProductId":1,"Quantity":2,"Price":45.00}]
+    @OrderId INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        BEGIN TRANSACTION
+        
+        -- Create the order
+        INSERT INTO Orders (UserId, Total, Status, Date, PaymentMethod, ShippingAddress)
+        VALUES (@UserId, @Total, 'Pending', GETDATE(), @PaymentMethod, @ShippingAddress)
+        
+        SET @OrderId = SCOPE_IDENTITY()
+        
+        -- Insert order items from JSON
+        INSERT INTO OrderItems (OrderId, ProductId, Quantity, Price)
+        SELECT 
+            @OrderId,
+            JSON_VALUE(value, '$.ProductId'),
+            JSON_VALUE(value, '$.Quantity'),
+            JSON_VALUE(value, '$.Price')
+        FROM OPENJSON(@OrderItems)
+        
+        COMMIT TRANSACTION
+        
+        SELECT @OrderId AS OrderId, 'Order created successfully.' AS Message
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION
+        THROW;
+    END CATCH
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetUserOrders
+-- Description: Retrieves all orders for a user
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetUserOrders')
+    DROP PROCEDURE sp_GetUserOrders
+GO
+
+CREATE PROCEDURE sp_GetUserOrders
+    @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        o.Id,
+        o.UserId,
+        o.Total,
+        o.Status,
+        o.Date,
+        o.PaymentMethod,
+        o.ShippingAddress
+    FROM Orders o
+    WHERE o.UserId = @UserId
+    ORDER BY o.Date DESC
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetOrderById
+-- Description: Retrieves order details with items
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetOrderById')
+    DROP PROCEDURE sp_GetOrderById
+GO
+
+CREATE PROCEDURE sp_GetOrderById
+    @OrderId INT,
+    @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Get order details
+    SELECT 
+        o.Id,
+        o.UserId,
+        o.Total,
+        o.Status,
+        o.Date,
+        o.PaymentMethod,
+        o.ShippingAddress
+    FROM Orders o
+    WHERE o.Id = @OrderId AND o.UserId = @UserId
+    
+    -- Get order items
+    SELECT 
+        oi.Id,
+        oi.OrderId,
+        oi.ProductId,
+        oi.Quantity,
+        oi.Price,
+        p.Name AS ProductName,
+        p.Image AS ProductImage
+    FROM OrderItems oi
+    INNER JOIN Products p ON oi.ProductId = p.Id
+    WHERE oi.OrderId = @OrderId
+END
+GO
+
+-- =============================================
+-- Procedure: sp_UpdateOrderStatus
+-- Description: Updates order status
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_UpdateOrderStatus')
+    DROP PROCEDURE sp_UpdateOrderStatus
+GO
+
+CREATE PROCEDURE sp_UpdateOrderStatus
+    @OrderId INT,
+    @Status NVARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        UPDATE Orders
+        SET Status = @Status
+        WHERE Id = @OrderId
+        
+        IF @@ROWCOUNT = 0
+        BEGIN
+            RAISERROR('Order not found.', 16, 1)
+            RETURN
+        END
+        
+        SELECT 'Order status updated successfully.' AS Message
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetOrderItemsByOrderId
+-- Description: Retrieves all items for an order
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetOrderItemsByOrderId')
+    DROP PROCEDURE sp_GetOrderItemsByOrderId
+GO
+
+CREATE PROCEDURE sp_GetOrderItemsByOrderId
+    @OrderId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        oi.Id,
+        oi.OrderId,
+        oi.ProductId,
+        oi.Quantity,
+        oi.Price,
+        p.Name AS ProductName,
+        p.Image AS ProductImage,
+        p.Category AS ProductCategory
+    FROM OrderItems oi
+    INNER JOIN Products p ON oi.ProductId = p.Id
+    WHERE oi.OrderId = @OrderId
+END
+GO
+
+-- =============================================
+-- REVIEW PROCEDURES
+-- =============================================
+
+-- =============================================
+-- Procedure: sp_GetLatestReviews
+-- Description: Retrieves latest reviews
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetLatestReviews')
+    DROP PROCEDURE sp_GetLatestReviews
+GO
+
+CREATE PROCEDURE sp_GetLatestReviews
+    @TopCount INT = 3
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT TOP (@TopCount)
+        r.Id,
+        r.UserName,
+        r.Content,
+        r.Rating,
+        r.Date,
+        r.ProductId,
+        p.Name AS ProductName
+    FROM Reviews r
+    LEFT JOIN Products p ON r.ProductId = p.Id
+    ORDER BY r.Date DESC
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetReviewsByProduct
+-- Description: Retrieves reviews for a specific product
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetReviewsByProduct')
+    DROP PROCEDURE sp_GetReviewsByProduct
+GO
+
+CREATE PROCEDURE sp_GetReviewsByProduct
+    @ProductId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        Id,
+        UserName,
+        Content,
+        Rating,
+        Date,
+        ProductId
+    FROM Reviews
+    WHERE ProductId = @ProductId
+    ORDER BY Date DESC
+END
+GO
+
+-- =============================================
+-- Procedure: sp_CreateReview
+-- Description: Creates a new review
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_CreateReview')
+    DROP PROCEDURE sp_CreateReview
+GO
+
+CREATE PROCEDURE sp_CreateReview
+    @UserName NVARCHAR(100),
+    @Content NVARCHAR(MAX),
+    @Rating INT,
+    @ProductId INT = NULL,
+    @ReviewId INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        -- Validate rating
+        IF @Rating < 1 OR @Rating > 5
+        BEGIN
+            RAISERROR('Rating must be between 1 and 5.', 16, 1)
+            RETURN
+        END
+        
+        -- Insert review
+        INSERT INTO Reviews (UserName, Content, Rating, Date, ProductId)
+        VALUES (@UserName, @Content, @Rating, GETDATE(), @ProductId)
+        
+        SET @ReviewId = SCOPE_IDENTITY()
+        
+        -- Update product rating if ProductId is provided
+        IF @ProductId IS NOT NULL
+        BEGIN
+            UPDATE Products
+            SET Rating = (
+                SELECT AVG(CAST(Rating AS DECIMAL(3,2)))
+                FROM Reviews
+                WHERE ProductId = @ProductId
+            )
+            WHERE Id = @ProductId
+        END
+        
+        SELECT @ReviewId AS ReviewId, 'Review created successfully.' AS Message
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
+
+-- =============================================
+-- MESSAGE PROCEDURES
+-- =============================================
+
+-- =============================================
+-- Procedure: sp_CreateMessage
+-- Description: Creates a new contact message
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_CreateMessage')
+    DROP PROCEDURE sp_CreateMessage
+GO
+
+CREATE PROCEDURE sp_CreateMessage
+    @Name NVARCHAR(100),
+    @Email NVARCHAR(100),
+    @Subject NVARCHAR(200),
+    @Body NVARCHAR(MAX),
+    @MessageId INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        INSERT INTO Messages (Name, Email, Subject, Body, CreatedAt, IsRead)
+        VALUES (@Name, @Email, @Subject, @Body, GETDATE(), 0)
+        
+        SET @MessageId = SCOPE_IDENTITY()
+        
+        SELECT @MessageId AS MessageId, 'Message sent successfully.' AS Message
+    END TRY
+    BEGIN CATCH
+        THROW;
+    END CATCH
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetAllMessages
+-- Description: Retrieves all messages (for admin)
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetAllMessages')
+    DROP PROCEDURE sp_GetAllMessages
+GO
+
+CREATE PROCEDURE sp_GetAllMessages
+    @OnlyUnread BIT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT 
+        Id,
+        Name,
+        Email,
+        Subject,
+        Body,
+        CreatedAt,
+        IsRead
+    FROM Messages
+    WHERE (@OnlyUnread = 0 OR IsRead = 0)
+    ORDER BY CreatedAt DESC
+END
+GO
+
+-- =============================================
+-- Procedure: sp_MarkMessageAsRead
+-- Description: Marks a message as read
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_MarkMessageAsRead')
+    DROP PROCEDURE sp_MarkMessageAsRead
+GO
+
+CREATE PROCEDURE sp_MarkMessageAsRead
+    @MessageId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    UPDATE Messages
+    SET IsRead = 1
+    WHERE Id = @MessageId
+    
+    SELECT 'Message marked as read.' AS Message
+END
+GO
+
+-- =============================================
+-- ANALYTICS & REPORTING PROCEDURES
+-- =============================================
+
+-- =============================================
+-- Procedure: sp_GetOrderStatistics
+-- Description: Gets order statistics for dashboard
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetOrderStatistics')
+    DROP PROCEDURE sp_GetOrderStatistics
+GO
+
+CREATE PROCEDURE sp_GetOrderStatistics
+    @StartDate DATETIME = NULL,
+    @EndDate DATETIME = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Default to last 30 days if not specified
+    IF @StartDate IS NULL
+        SET @StartDate = DATEADD(DAY, -30, GETDATE())
+    IF @EndDate IS NULL
+        SET @EndDate = GETDATE()
+    
+    SELECT 
+        COUNT(*) AS TotalOrders,
+        SUM(Total) AS TotalRevenue,
+        AVG(Total) AS AverageOrderValue,
+        COUNT(CASE WHEN Status = 'Pending' THEN 1 END) AS PendingOrders,
+        COUNT(CASE WHEN Status = 'Processing' THEN 1 END) AS ProcessingOrders,
+        COUNT(CASE WHEN Status = 'Shipped' THEN 1 END) AS ShippedOrders,
+        COUNT(CASE WHEN Status = 'Delivered' THEN 1 END) AS DeliveredOrders,
+        COUNT(CASE WHEN Status = 'Cancelled' THEN 1 END) AS CancelledOrders
+    FROM Orders
+    WHERE Date BETWEEN @StartDate AND @EndDate
+END
+GO
+
+-- =============================================
+-- Procedure: sp_GetTopSellingProducts
+-- Description: Gets top selling products
+-- =============================================
+IF EXISTS (SELECT * FROM sys.objects WHERE type = 'P' AND name = 'sp_GetTopSellingProducts')
+    DROP PROCEDURE sp_GetTopSellingProducts
+GO
+
+CREATE PROCEDURE sp_GetTopSellingProducts
+    @TopCount INT = 10
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    SELECT TOP (@TopCount)
+        p.Id,
+        p.Name,
+        p.Category,
+        p.Price,
+        p.Rating,
+        SUM(oi.Quantity) AS TotalQuantitySold,
+        SUM(oi.Quantity * oi.Price) AS TotalRevenue
+    FROM Products p
+    INNER JOIN OrderItems oi ON p.Id = oi.ProductId
+    GROUP BY p.Id, p.Name, p.Category, p.Price, p.Rating
+    ORDER BY TotalQuantitySold DESC
+END
+GO
+
+PRINT 'All stored procedures created successfully.'
+GO
